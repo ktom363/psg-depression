@@ -3,17 +3,7 @@
 ---
 
 ## Vision Transformer
-
-Overnight PSG is acquired routinely in sleep clinics and contains multichannel physiological
-information that is not used for mental-health assessment in standard practice. In this study,
-18-channel PSG recordings are rendered into two-dimensional waveform images through a fixed,
-fully specified procedure, and a Transformer image classifier is trained to classify
-**clinically significant depressive symptoms** at the participant level.
-
-The task is the classification of self-reported symptom burden (SCL-90-R Depression T-score ≥ 63
-internally; BDI-II ≥ 20 externally), **not** the diagnosis of a depressive disorder. The intended
-setting is opportunistic symptom-risk assessment among patients already undergoing clinical PSG,
-not screening in the general population.
+(ViT 사진)
 
 ---
 
@@ -76,19 +66,3 @@ runs/vit/run_config.json           resolved settings, parameter counts, library 
 
 `run_config.json` records the trainable and total parameter counts of the resolved configuration,
 which is the figure to report alongside the training settings.
-
-### Two settings that change what is being trained
-
-- **`--full-finetune`.** The default trains the classification head only, which is what the
-  reported experiments used; the number of trainable parameters is therefore several orders of
-  magnitude smaller than the full model. Check `run_config.json` for the exact figure of a run.
-- **`--train-aggregation`.** `logit` pools the per-image logits before the sigmoid, whereas
-  inference averages probabilities. Because the sigmoid is non-linear the two are not equivalent;
-  `probability` makes the training objective match the inference rule.
-
-### Reproducing a split
-
-The participant split is derived from the label file: participants are ordered by class and then
-by identifier before the stratified split is drawn with `--split-seed`. A split produced from a
-different ordering of the same participants will not match, so keep `split.json` with the run.
-
