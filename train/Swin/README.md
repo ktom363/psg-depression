@@ -4,7 +4,7 @@
 
 ## Swin Transformer
 
-(사진)
+<img src="img/img4.png">
 
 ---
 
