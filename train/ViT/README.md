@@ -4,7 +4,7 @@
 
 ## Vision Transformer
 
-<img src="../img/img3.png">
+<img src="../../img/img3.png">
 
 ---
 
