@@ -7,7 +7,7 @@ Swin Transformer).
 
 ---
 
-## Overview
+## Framework Overview
 
 Overnight PSG is acquired routinely in sleep clinics and contains multichannel physiological
 information that is not used for mental-health assessment in standard practice. In this study,
