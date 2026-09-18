@@ -17,7 +17,7 @@ Swin Transformer).
 
 | Path | Description |
 |---|---|
-| `preprocessing/edf_to_images.py` | EDF → 224 × 224 epoch images. Complete preprocessing and rendering in a single pass; no intermediate files. |
+| `preprocessing/edf_to_images.py` | EDF → 224 × 224 epoch images. |
 | `preprocessing/requirements.txt` | Dependency ranges for the preprocessing stage. |
 | `preprocessing/README.md` | Preprocessing usage and step-by-step execution notes. |
 | `train/ViT/train_vit.py` | Vision Transformer training and participant-level evaluation. |
