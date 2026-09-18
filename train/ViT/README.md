@@ -4,7 +4,7 @@
 
 ## Vision Transformer
 
-(사진)
+<img src="img/img3.png">
 
 ---
 
