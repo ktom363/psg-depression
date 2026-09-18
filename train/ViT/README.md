@@ -8,6 +8,27 @@
 
 ---
 
+## Setup
+
+Python 3.11 is recommended. 
+
+With conda or miniconda:
+
+```bash
+conda create -n psg-dl python=3.11 -y
+conda activate psg-dl
+```
+Then, inside the activated environment:
+
+```bash
+# CUDA 12.1 build, as an example; use the index URL that matches the local driver
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+pip install -r requirements.txt
+```
+
+---
+
 ## Vision Transformer training
 
 ```bash
