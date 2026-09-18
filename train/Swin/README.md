@@ -4,7 +4,7 @@
 
 ## Swin Transformer
 
-<img src="img/img4.png">
+<img src="../../img/img4.png">
 
 ---
 
