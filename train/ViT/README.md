@@ -25,7 +25,7 @@ patient_id,label
 ```
 
 `label` is 1 for clinically significant depressive symptoms and 0 otherwise. Participants listed
-in the file but absent from the image directory are skipped with a warning.
+in the file but absent from the image directory are skipped with a warning. 
 
 ### Options
 
@@ -33,23 +33,31 @@ in the file but absent from the image directory are skipped with a warning.
 |---|---|---|
 | `--model-name` | `vit_base_patch16_224` | timm model identifier. |
 | `--checkpoint` | – | Local pretrained state dict; omit to let timm download the weights. |
-| `--full-finetune` | off | Update the whole backbone. By default **only the classification head is trained** and the pretrained encoder stays frozen. |
+| `--head-only` | off | Freeze the pretrained encoder and update the classification head only. By default **the whole backbone is fine-tuned**. |
+| `--dropout` | `0.2` | Dropout applied to the pooled representation before the two-class classifier. |
+| `--normalization` | `model` | Channel statistics for input normalisation. `model` uses the statistics the pretrained weights of the resolved backbone were trained with; `half` forces 0.5/0.5. |
 | `--epochs` | `100` | Training epochs; no early stopping. |
 | `--lr` / `--weight-decay` | `1e-4` / `1e-4` | AdamW settings, with cosine annealing over the run. |
-| `--image-batch-size` | `64` | Images per forward pass within a participant. |
-| `--train-aggregation` | `logit` | Pooling used during training. Inference always averages probabilities. |
+| `--batch-size` | `32` | Images per optimiser step. |
+| `--eval-batch-size` | `32` | Images per forward pass at validation and test time. |
 | `--seed` / `--split-seed` | `42` / `1112` | Training seed and participant-split random state. |
 | `--min-images` / `--max-images` | `1` / – | Bounds on the epoch images used per participant. |
+| `--test-size` / `--val-size` | `0.2` / `0.2` | Proportions of the 60:20:20 participant split. |
+| `--no-pretrained` | off | Initialise the backbone randomly instead of from pretrained weights. |
+| `--no-amp` | off | Disable mixed-precision training. |
+| `--num-workers` / `--device` | `0` / auto | Dataloader workers and compute device. |
 
 ### Outputs
 
 ```
 runs/vit/best_vit.pth              lowest-validation-loss checkpoint
-runs/vit/training_history.csv      per-epoch loss, accuracy, learning rate
+runs/vit/training_history.csv      per-epoch loss, accuracy, participant-level metrics, learning rate
 runs/vit/split.json                participant identifiers per subset
 runs/vit/test_predictions.csv      participant-level probabilities on the internal test set
 runs/vit/run_config.json           resolved settings, parameter counts, library versions
 ```
 
 `run_config.json` records the trainable and total parameter counts of the resolved configuration,
-which is the figure to report alongside the training settings.
+which is the figure to report alongside the training settings, together with the loss, decision
+threshold, scheduler, normalisation, batch size, image counts per subset, and mixed-precision
+state of the run.
