@@ -6,8 +6,8 @@ Preprocessing for image-based polysomnography (PSG) analysis.
 Pipeline
 --------
     EDF  ->  channel selection (18 fixed channels, alias resolution)
+         ->  resampling the full selected recording to 100 Hz
          ->  temporal cropping (recording seconds [900, 22500), up to 6 hours)
-         ->  resampling the cropped window to 100 Hz
          ->  Savitzky-Golay smoothing (window 25, polyorder 3)
          ->  per-channel min-max normalisation to [0, 1]
          ->  30-second epoch segmentation (3,000 samples per epoch)
@@ -97,8 +97,6 @@ LOGGER = logging.getLogger("psg2img")
 
 @dataclass
 class RecordingResult:
-    """Per-recording summary written to the manifest."""
-
     patient_id: str
     edf_path: str
     status: str
@@ -114,11 +112,6 @@ class RecordingResult:
 # --------------------------------------------------------------------------- #
 
 def resolve_channel_map(available: Sequence[str]) -> Dict[str, Optional[str]]:
-    """Map each desired channel to its name in this EDF, or to None if absent.
-
-    Matching is case-insensitive and whitespace-insensitive so that minor
-    header variations ("spo2", "SpO2 ") do not create spurious missing rows.
-    """
     lookup = {name.strip().lower(): name for name in available}
     mapping: Dict[str, Optional[str]] = {}
     for canonical in DESIRED_CHANNELS:
@@ -140,11 +133,6 @@ def resolve_channel_map(available: Sequence[str]) -> Dict[str, Optional[str]]:
 # --------------------------------------------------------------------------- #
 
 def minmax_normalise(signal: np.ndarray) -> np.ndarray:
-    """Scale a single channel to [0, 1], ignoring non-finite samples.
-
-    A constant channel is mapped to all zeros, matching the behaviour of
-    ``sklearn.preprocessing.MinMaxScaler`` when ``max == min``.
-    """
     finite = np.isfinite(signal)
     if not finite.any():
         return np.full_like(signal, np.nan, dtype=np.float64)
@@ -158,7 +146,6 @@ def minmax_normalise(signal: np.ndarray) -> np.ndarray:
 
 
 def smooth_channel(signal: np.ndarray, patient_id: str, channel: str) -> np.ndarray:
-    """Apply the Savitzky-Golay filter, falling back to the raw trace on error."""
     if signal.size < SAVGOL_WINDOW:
         LOGGER.warning("[%s] %s: too short for Savitzky-Golay, left unfiltered",
                        patient_id, channel)
@@ -182,11 +169,6 @@ def prepare_signals(
     start_second: float,
     n_epochs: int,
 ) -> Tuple[np.ndarray, Dict[str, Optional[np.ndarray]], List[str]]:
-    """Select channels, crop first, then resample/smooth/normalize the window.
-
-    start_second is relative to EDF recording onset, NOT sleep onset.
-    Short recordings retain only the available portion (no padding).
-    """
     channel_map = resolve_channel_map(raw.ch_names)
     present = [name for name in channel_map.values() if name is not None]
     if not present:
@@ -194,29 +176,30 @@ def prepare_signals(
 
     raw.pick(present)
 
-    # Crop on the original MNE time grid BEFORE explicit 100-Hz resampling.
-    # The stop sample is exclusive; tmax in Raw.crop is inclusive.
+    # Resample the full selected recording BEFORE extracting the analysis window.
     original_sfreq = float(raw.info["sfreq"])
-    start_idx = int(round(start_second * original_sfreq))
-    requested_samples = int(round(n_epochs * EPOCH_SECONDS * original_sfreq))
-    stop_idx = min(start_idx + requested_samples, raw.n_times)
-    if start_idx >= raw.n_times or stop_idx <= start_idx:
-        raise ValueError("recording has no samples after the requested start")
-    raw.crop(tmin=start_idx / original_sfreq,
-             tmax=(stop_idx - 1) / original_sfreq,
-             include_tmax=True)
+    original_duration = raw.n_times / original_sfreq
+    if not np.isclose(original_sfreq, 256.0):
+        LOGGER.warning("[%s] EDF sampling rate is %.3f Hz, expected 256 Hz; "
+                       "resampling the actual rate to 100 Hz",
+                       patient_id, original_sfreq)
     raw.resample(TARGET_SFREQ, npad="auto", verbose=False)
 
-    data, relative_times = raw.get_data(return_times=True)
-    # Never extend a short recording by rounding to an extra complete epoch.
-    max_samples = min(
-        n_epochs * int(round(EPOCH_SECONDS * TARGET_SFREQ)),
-        int(np.floor((stop_idx - start_idx) / original_sfreq
-                     * TARGET_SFREQ + 1e-7)),
-    )
-    data = data[:, :max_samples]
-    # Keep recording-relative timestamps and the original T900, T930... names.
-    times = start_second + relative_times[:data.shape[1]]
+    # Index the requested window on the resampled 100-Hz grid.
+    # Floor the original duration to avoid extending short recordings by rounding.
+    available_samples = min(raw.n_times,
+                            int(np.floor(original_duration * TARGET_SFREQ + 1e-7)))
+    start_idx = int(round(start_second * TARGET_SFREQ))
+    requested_samples = n_epochs * int(round(EPOCH_SECONDS * TARGET_SFREQ))
+    stop_idx = min(start_idx + requested_samples, available_samples)
+    if start_idx >= available_samples or stop_idx <= start_idx:
+        raise ValueError("recording has no samples after the requested start")
+    raw.crop(tmin=start_idx / TARGET_SFREQ,
+             tmax=(stop_idx - 1) / TARGET_SFREQ,
+             include_tmax=True)
+    data = raw.get_data()
+    # Recording-relative timestamps: T900, T930, ... for default settings.
+    times = (start_idx + np.arange(data.shape[1])) / TARGET_SFREQ
     by_name = {name: data[idx] for idx, name in enumerate(raw.ch_names)}
 
     signals: Dict[str, Optional[np.ndarray]] = {}
@@ -252,11 +235,6 @@ def render_epoch(
     signals: Dict[str, Optional[np.ndarray]],
     tight_bbox: bool,
 ) -> Image.Image:
-    """Render one 30-second epoch as a 224 x 224 RGB image.
-
-    The figure holds 18 full-width axes of height 1/18; row i always carries
-    channel c_i. Missing channels leave their axes empty, producing a black row.
-    """
     n_rows = len(DESIRED_CHANNELS)
     fig = plt.figure(figsize=(FIG_INCHES, FIG_INCHES),
                      facecolor="black", dpi=FIG_DPI)
@@ -266,12 +244,13 @@ def render_epoch(
             ax = fig.add_axes([0.0, bottom, 1.0, 1.0 / n_rows])
             ax.set_facecolor("black")
             ax.axis("off")
+            ax.set_ylim(0, 1)
 
             trace = signals.get(canonical)
             if trace is None:
                 continue
             ax.plot(time, np.nan_to_num(trace, nan=0.0, posinf=0.0, neginf=0.0),
-                    color="white", linewidth=LINE_WIDTH)
+                    color="white", linewidth=LINE_WIDTH, antialiased=True)
 
         buffer = io.BytesIO()
         save_kwargs = {"facecolor": "black", "dpi": FIG_DPI}
@@ -367,20 +346,12 @@ def process_recording(
 # --------------------------------------------------------------------------- #
 
 def discover_edfs(root: Path, pattern: str, recursive: bool) -> List[Path]:
-    """Find EDF files under ``root``; every match is processed, label-agnostic."""
     globber = root.rglob if recursive else root.glob
     files = sorted({path for path in globber(pattern) if path.is_file()})
     return files
 
 
 def derive_patient_id(edf_path: Path, root: Path, mode: str) -> str:
-    """Derive a subject identifier from the file layout.
-
-    ``auto``    parent directory name when the EDF sits in a per-subject folder
-                (e.g. ``<id>/Traces.edf``), otherwise the file stem
-    ``parent``  always the parent directory name
-    ``stem``    always the file stem
-    """
     parent = edf_path.parent.name
     stem = edf_path.stem
     if mode == "parent":
@@ -448,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="manifest path (default: <output>/preprocessing_manifest.csv)")
     parser.add_argument("--log-level", default="INFO",
                         choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+    parser.set_defaults(tight_bbox=False)
     return parser
 
 
